@@ -47,6 +47,20 @@ jobs:
           auth={'auths':{host:{'auth':base64.b64encode((user+':'+key).encode()).decode()} for host,user,key in [('cr.eu-north1.nebius.cloud','iam',os.environ['NEBIUS_REGISTRY_TOKEN']),('ghcr.io','juan294',os.environ['GITHUB_TOKEN'])]}}
           pathlib.Path('.private-mirror/auth.json').write_text(json.dumps(auth))
           PY
+          python3 - <<'PYCODE'
+          import os,json,urllib.request,urllib.error
+          url='https://api.github.com/users/juan294/packages/container/cirujano-optimization-proof-mirror'
+          req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GITHUB_TOKEN'],'Accept':'application/vnd.github+json'})
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args,**kwargs):return None
+          try:
+              with urllib.request.build_opener(NoRedirect()).open(req,timeout=20) as response:
+                  body=response.read(65537);assert len(body)<=65536
+                  package=json.loads(body)
+                  assert package['visibility']=='private' and package['repository']['full_name']=='juan294/cirujano-image-transfer'
+          except urllib.error.HTTPError as error:
+              assert error.code==404
+          PYCODE
           docker run --rm -v "$PWD/.private-mirror:/work" "$SKOPEO_IMAGE" copy --preserve-digests --retry-times 0 --src-authfile /work/auth.json --dest-authfile /work/auth.json "docker://$SOURCE_IMAGE" "docker://$DEST_IMAGE"
           docker run --rm -v "$PWD/.private-mirror:/work" "$SKOPEO_IMAGE" inspect --raw --authfile /work/auth.json --retry-times 0 "docker://$DEST_IMAGE" > .private-mirror/manifest.json
           docker run --rm -v "$PWD/.private-mirror:/work" "$SKOPEO_IMAGE" inspect --raw --config --authfile /work/auth.json --retry-times 0 "docker://$DEST_IMAGE" > .private-mirror/config.json
@@ -55,6 +69,20 @@ jobs:
           for name,digest in [('manifest.json','e3058fb86a3bf2f4f71fe26bb89c66922837507508f96ddbc369b264833684a0'),('config.json','a8f16af135de5328dac235a743335c5127ccb07862e330f7ba2dfe3485f3d141')]:
               assert hashlib.sha256(pathlib.Path('.private-mirror',name).read_bytes()).hexdigest()==digest
           PY
+          python3 - <<'PYCODE'
+          import os,json,urllib.request,urllib.error
+          url='https://api.github.com/users/juan294/packages/container/cirujano-optimization-proof-mirror'
+          req=urllib.request.Request(url,headers={'Authorization':'Bearer '+os.environ['GITHUB_TOKEN'],'Accept':'application/vnd.github+json'})
+          class NoRedirect(urllib.request.HTTPRedirectHandler):
+              def redirect_request(self,*args,**kwargs):return None
+          try:
+              with urllib.request.build_opener(NoRedirect()).open(req,timeout=20) as response:
+                  body=response.read(65537);assert len(body)<=65536
+                  package=json.loads(body)
+                  assert package['visibility']=='private' and package['repository']['full_name']=='juan294/cirujano-image-transfer'
+          except urllib.error.HTTPError:
+              raise RuntimeError('Private package readback failed') from None
+          PYCODE
       - name: Import verified mirror once and read image contents
         env:
           GITHUB_TOKEN: ${{ github.token }}
