@@ -59,6 +59,45 @@ class BuildTests(unittest.TestCase):
     self.assertEqual(sum('copy' in call for call in calls),1)
     self.assertNotIn('fixture-credential',json.dumps(calls)+result.stdout+result.stderr)
     self.assertEqual((private/'receipt.json').exists(),not bool(failure))
+ def test_build_selects_container_driver_and_preserves_failures(self):
+  import json
+  for failure in ['create','bootstrap','build']:
+   with self.subTest(failure=failure),tempfile.TemporaryDirectory() as d:
+    p=pathlib.Path(d);binpath=p/'bin';binpath.mkdir();calls=p/'calls.jsonl'
+    script=binpath/'docker'
+    script.write_text("#!/usr/bin/env python3\nimport sys,os,json\na=sys.argv[1:]\nwith open(os.environ['FIXTURE_CALLS'],'a') as f:f.write(json.dumps(a)+'\\n')\nstage={'create':'create','inspect':'bootstrap','build':'build'}.get(a[1]) if a[0]=='buildx' else None\nif stage==os.environ['FIXTURE_FAIL']:\n if stage=='build':sys.stderr.write('x'*20000)\n print('native-docker-error-'+stage,file=sys.stderr);sys.exit(1)\n")
+    script.chmod(0o700)
+    env=dict(os.environ,PATH=str(binpath)+os.pathsep+os.environ['PATH'],FIXTURE_CALLS=str(calls),FIXTURE_FAIL=failure,RUNNER_TEMP=d,GITHUB_REPOSITORY='juan294/cirujano-image-transfer',GITHUB_REF='refs/heads/develop',GITHUB_RUN_ATTEMPT='1',GITHUB_SHA='b'*40,APPROVED_COMMIT='b'*40,GITHUB_RUN_ID='123')
+    result=subprocess.run(['bash','scripts/build.sh'],cwd=ROOT,env=env,capture_output=True,text=True,timeout=15)
+    self.assertNotEqual(result.returncode,0)
+    self.assertIn('native-docker-error-'+failure,result.stderr)
+    self.assertLessEqual(len(result.stderr.encode()),16450)
+    commands=[json.loads(line) for line in calls.read_text().splitlines()]
+    create=commands[0]
+    self.assertEqual(create[:2],['buildx','create']);self.assertIn('docker-container',create)
+    self.assertIn('image=moby/buildkit@sha256:cec9f139f45e93c5c69c60f8b07cfad9f43f4ef6b6a6cd917527fea5ff2e3dea',create)
+    if failure=='build':
+     build=commands[-1];self.assertEqual(build[:2],['buildx','build'])
+     self.assertEqual(build[build.index('--builder')+1],'cirujano-build-123')
+    self.assertTrue(all('login' not in c and 'copy' not in c and 'run' not in c for c in commands))
+ def test_cleanup_removes_private_files_and_reports_docker_gaps(self):
+  import json
+  for failure in ['', 'builder-list', 'builder-left', 'container-list', 'container-left', 'volume-left']:
+   with self.subTest(failure=failure),tempfile.TemporaryDirectory() as d:
+    p=pathlib.Path(d);private=p/'cirujano-build-123';private.mkdir();(private/'auth.json').write_text('{}')
+    binpath=p/'bin';binpath.mkdir();calls=p/'calls.jsonl';script=binpath/'docker'
+    script.write_text("#!/usr/bin/env python3\nimport sys,os,json\na=sys.argv[1:];failure=os.environ['FIXTURE_FAIL']\nwith open(os.environ['FIXTURE_CALLS'],'a') as f:f.write(json.dumps(a)+'\\n')\nif a[:2]==['buildx','ls']:\n if failure=='builder-list':sys.exit(1)\n print('unrelated-builder');print('cirujano-build-123' if failure=='builder-left' else '')\nelif a[0]=='ps':\n if failure=='container-list':sys.exit(1)\n if failure=='container-left':print('owned-live-id')\nelif a[:2]==['volume','ls'] and failure=='volume-left':print('buildx_buildkit_cirujano-build-1230_state')\n")
+    script.chmod(0o700)
+    env=dict(os.environ,PATH=str(binpath)+os.pathsep+os.environ['PATH'],FIXTURE_CALLS=str(calls),FIXTURE_FAIL=failure,RUNNER_TEMP=d,GITHUB_RUN_ID='123')
+    result=subprocess.run(['bash','scripts/cleanup.sh'],cwd=ROOT,env=env,capture_output=True,text=True,timeout=15)
+    self.assertEqual(result.returncode==0,not bool(failure),result.stderr)
+    self.assertFalse(private.exists())
+    commands=[json.loads(line) for line in calls.read_text().splitlines()]
+    self.assertEqual(commands[0],['buildx','rm','cirujano-build-123'])
+    self.assertEqual(sum(c[0]=='rm' for c in commands),3)
+    self.assertIn(['volume','rm','buildx_buildkit_cirujano-build-1230_state'],commands)
+    for command in commands:
+     if command[0]=='rm':self.assertIn(command[-1],['cirujano-probe-123','cirujano-publish-123','buildx_buildkit_cirujano-build-1230'])
  def test_loaded_manifest_id_is_distinct_from_config_digest(self):
   import io,tarfile,json,hashlib
   with tempfile.TemporaryDirectory() as d:

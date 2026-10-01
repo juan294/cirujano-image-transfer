@@ -34,11 +34,4 @@ jobs:
         if: always()
         shell: bash
         run: |
-          rm -rf -- "$RUNNER_TEMP/cirujano-build-$GITHUB_RUN_ID"
-          for owned in "cirujano-probe-$GITHUB_RUN_ID" "cirujano-publish-$GITHUB_RUN_ID"; do
-            timeout --kill-after=5s 10s docker rm -f "$owned" >/dev/null 2>&1 || true
-            if ! live=$(timeout --kill-after=5s 10s docker ps -a --filter "name=^/$owned$" --format '{{.ID}}'); then
-              echo owned-container-cleanup-unverified; exit 1
-            fi
-            test -z "$live" || { echo owned-container-cleanup-incomplete; exit 1; }
-          done
+          bash scripts/cleanup.sh

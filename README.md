@@ -9,3 +9,5 @@ The publication step receives one temporary Cloud IAM token through a repository
 After the owned run, preserve its receipt, disable the workflow and remove the temporary secret. Retain this repository with zero secrets if deletion permission is unavailable. Nebius Sandbox import, model calls and comparison runs require their own verified image binding and authority.
 
 Fresh fetches change pnpm index `checkedAt` timestamps. The probe checks fixed hashes for all package payload files and all other index metadata, then validates the entire unnormalized store against the fresh image manifest. Every image retains its own full store hash.
+
+The archive build uses an explicitly named `docker-container` builder with a pinned BuildKit image. It does not depend on the runner daemon supporting archive export. Builder setup and build failures preserve at most 16 KiB of stderr in the run log. The final step removes only this run's builder, private files and containers.
