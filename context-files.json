@@ -1,0 +1,32 @@
+[
+  {
+    "path": "Dockerfile",
+    "sha256": "8e6a78038aca57dbda38afa5c53be50a1906683bca139034c856f0b190f6eb03",
+    "bytes": 1132
+  },
+  {
+    "path": "build-manifest.mjs",
+    "sha256": "0cc838a3db818cde51f4453ee7ca814988a67cb86c12e3ca75c0b316f3c6cfc9",
+    "bytes": 777
+  },
+  {
+    "path": "dependency-input/package.json",
+    "sha256": "297f19e94e19496fa8059aa618ca8fc09343b02c886931c582e145835a35a5b2",
+    "bytes": 229
+  },
+  {
+    "path": "dependency-input/pnpm-lock.yaml",
+    "sha256": "eea37020abaf29d8f536bd322c5cd326190e542a3887d18f58c8653d06baa1df",
+    "bytes": 27248
+  },
+  {
+    "path": "harness.mjs",
+    "sha256": "38340b4d15edf20008ca1062e5fbf65522cbd319c9199ab63a10340db1623779",
+    "bytes": 19158
+  },
+  {
+    "path": "recipe.json",
+    "sha256": "37a3a20d4ebfb2c7b3cb033e3c5246d1ab46ef0f9b24e93ef0c246079bd072e1",
+    "bytes": 334
+  }
+]

@@ -1,5 +1,9 @@
-# Frozen image transfer
+# Reviewed image build
 
-Temporary infrastructure for one owner-approved transfer of an immutable OCI archive to Nebius Container Registry. The integration/default branch is `develop`. The only workflow is manual; it cannot run on push, release, pull request, or schedule. The archive stays in an unpublished draft release. There is no hosted application or production deployment. The bounded job preserves image digests and removes local credential files.
+Temporary infrastructure for one explicitly approved build of the public Cirujano optimization verification image. The integration/default branch is `develop`. The workflow runs only on manual dispatch, requires the exact reviewed commit, and rejects reruns. There is no application or production deployment.
 
-After safe receipts are retained, remove the temporary secret and owned repository under the approved cleanup scope. This repository is separate from the optimization proof cohort.
+The `context/` directory contains only pinned dependency manifests, the trusted harness and the image recipe. Dependency fetches ignore scripts and pnpm hooks. An offline container probe verifies Node/pnpm, the reporter alias, harness, recipe, lockfile and dependency store before any provider credential is supplied.
+
+The publication step receives one temporary Cloud IAM token through a repository secret and stdin. Pinned Skopeo converts the Docker archive to registry format, uploads once and reads back the new platform manifest and tag. Compression may change the archive manifest digest; the destination config must match the probed immutable image config. The receipt records the actual new platform digest. The old Mac image digest is never substituted.
+
+After the owned run, preserve its receipt, disable the workflow and remove the temporary secret. Retain this repository with zero secrets if deletion permission is unavailable. Nebius Sandbox import, model calls and comparison runs require their own verified image binding and authority.

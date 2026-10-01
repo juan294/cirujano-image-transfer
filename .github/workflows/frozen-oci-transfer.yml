@@ -1,97 +1,44 @@
-name: Frozen OCI transfer
+name: Reviewed image build
 on:
   workflow_dispatch:
     inputs:
-      asset_id:
-        description: Owned draft-release asset ID verified by the controller
+      approved_commit:
+        description: Exact reviewed integration commit
         required: true
         type: string
 permissions:
   contents: read
 concurrency:
-  group: frozen-oci-transfer
+  group: reviewed-image-build
   cancel-in-progress: false
 jobs:
-  transfer:
+  build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 55
+    env:
+      APPROVED_COMMIT: ${{ inputs.approved_commit }}
     steps:
-      - name: Verify execution identity and fetch exact archive
-        env:
-          GH_TOKEN: ${{ github.token }}
-          ASSET_ID: ${{ inputs.asset_id }}
+      - name: Checkout reviewed integration commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Build and verify without provider credentials
         shell: bash
-        run: |
-          set -euo pipefail
-          umask 077
-          test "$GITHUB_REPOSITORY" = juan294/cirujano-image-transfer
-          test "$GITHUB_REF" = refs/heads/develop
-          test "$GITHUB_RUN_ATTEMPT" = 1
-          [[ "$ASSET_ID" =~ ^[1-9][0-9]{0,18}$ ]]
-          private="$RUNNER_TEMP/cirujano-transfer-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          mkdir -m 700 "$private"
-          printf 'header = "Authorization: Bearer %s"\n' "$GH_TOKEN" |
-            curl --config - --silent --fail --location --retry 0 --max-time 300 \
-              --proto '=https' --proto-redir '=https' --max-filesize 500282880 \
-              --header 'Accept: application/octet-stream' \
-              --output "$private/image.tar" \
-              "https://api.github.com/repos/juan294/cirujano-image-transfer/releases/assets/$ASSET_ID" \
-              2>"$private/download.stderr" || { echo 'archive-download-failed'; exit 1; }
-          test "$(stat -c %s "$private/image.tar")" = 500282880
-          printf '%s  %s\n' 4dae8271df2431fdf18f13be6f7f3d3807b536b67f94b303dbad62d6832c1684 "$private/image.tar" | sha256sum --check --status
-          mkdir -m 700 "$private/oci"
-          timeout --kill-after=5s 60s tar --extract --file "$private/image.tar" \
-            --directory "$private/oci" --no-same-owner --no-same-permissions \
-            >"$private/extract.stdout" 2>"$private/extract.stderr" || { echo 'archive-extraction-failed'; exit 1; }
-          timeout --kill-after=5s 120s docker pull --platform linux/amd64 \
-            quay.io/skopeo/stable@sha256:9988d67af5ce59f9045c6f525386e7941775727b0ff2aac7ba498b8adf79053b \
-            >"$private/tool.stdout" 2>"$private/tool.stderr" || { echo 'transfer-tool-unavailable'; exit 1; }
-      - name: Authenticate and copy once
+        run: bash scripts/build.sh
+      - name: Publish once and read back registry digest
         env:
           REGISTRY_TOKEN: ${{ secrets.NEBIUS_TRANSFER_ACCESS_TOKEN }}
         shell: bash
-        run: |
-          set -euo pipefail
-          umask 077
-          private="$RUNNER_TEMP/cirujano-transfer-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          tool=quay.io/skopeo/stable@sha256:9988d67af5ce59f9045c6f525386e7941775727b0ff2aac7ba498b8adf79053b
-          owned="cirujano-transfer-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          test -n "$REGISTRY_TOKEN"
-          trap 'rm -f "$private/auth.json"; timeout --kill-after=5s 10s docker rm -f "$owned" >/dev/null 2>&1 || true' EXIT
-          printf '%s' "$REGISTRY_TOKEN" | timeout --kill-after=5s 35s \
-            docker run --rm -i --name "$owned" --user "$(id -u):$(id -g)" \
-              --read-only --cap-drop ALL --security-opt no-new-privileges \
-              --tmpfs /tmp:rw,nosuid,nodev,size=128m \
-              --mount "type=bind,src=$private,dst=/transfer" "$tool" \
-              --command-timeout 30s login --authfile /transfer/auth.json \
-              --username iam --password-stdin cr.eu-north1.nebius.cloud \
-              >"$private/login.stdout" 2>"$private/login.stderr" || { echo 'registry-authentication-failed'; exit 1; }
-          unset REGISTRY_TOKEN
-          test "$(stat -c %a "$private/auth.json")" = 600
-          timeout --kill-after=5s 905s docker run --rm --name "$owned" \
-            --user "$(id -u):$(id -g)" --read-only --cap-drop ALL \
-            --security-opt no-new-privileges --tmpfs /tmp:rw,nosuid,nodev,size=128m \
-            --mount "type=bind,src=$private,dst=/transfer" "$tool" \
-            --command-timeout 900s --override-os linux --override-arch amd64 \
-            copy --quiet --preserve-digests --retry-times 0 --image-parallel-copies 1 \
-              --dest-authfile /transfer/auth.json --digestfile /transfer/digest.txt \
-              oci:/transfer/oci \
-              docker://cr.eu-north1.nebius.cloud/e00n3hvnajpf75kkc6/optimization-proof:41ddfe532242 \
-              >"$private/copy.stdout" 2>"$private/copy.stderr" || { echo 'registry-copy-failed'; exit 1; }
-          test "$(cat "$private/digest.txt")" = sha256:58fb37920f84bf46f0bec0400c3ad8b3bcf7102707fa1115201e2d0c83407f17
-          echo 'copy-command-completed; independent registry readback required'
-      - name: Remove owned container and private files
+        run: bash scripts/publish.sh
+      - name: Remove private files and owned containers
         if: always()
         shell: bash
         run: |
-          owned="cirujano-transfer-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          private="$RUNNER_TEMP/cirujano-transfer-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
-          rm -rf -- "$private"
-          if live=$(timeout --kill-after=5s 10s docker ps --filter "name=^/$owned$" --format '{{.ID}}' 2>/dev/null); then
-            if test -n "$live"; then
-              timeout --kill-after=5s 10s docker rm -f "$owned" >/dev/null 2>&1 || { echo 'owned-container-cleanup-incomplete'; exit 1; }
+          rm -rf -- "$RUNNER_TEMP/cirujano-build-$GITHUB_RUN_ID"
+          for owned in "cirujano-probe-$GITHUB_RUN_ID" "cirujano-publish-$GITHUB_RUN_ID"; do
+            timeout --kill-after=5s 10s docker rm -f "$owned" >/dev/null 2>&1 || true
+            if ! live=$(timeout --kill-after=5s 10s docker ps -a --filter "name=^/$owned$" --format '{{.ID}}'); then
+              echo owned-container-cleanup-unverified; exit 1
             fi
-          else
-            echo 'owned-container-cleanup-unverified'
-            exit 1
-          fi
+            test -z "$live" || { echo owned-container-cleanup-incomplete; exit 1; }
+          done

@@ -1,0 +1,1 @@
+{"devDependencies":{"@vitest/coverage-v8":"4.1.11","vitest":"4.1.11"},"engines":{"node":"22.20.0"},"name":"cirujano-public-optimization-benchmark","packageManager":"pnpm@10.11.0","private":true,"type":"module","version":"1.0.0"}

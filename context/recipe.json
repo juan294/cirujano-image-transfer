@@ -1,0 +1,1 @@
+{"bundleDigest":"2ada1f090f211f05ac56d69d769e76a3b2dc2e0ebdb75585e81638f88c401dc7","from":"docker.io/library/node@sha256:c190e697545bdb4fb32b29c0f47bf742f3c3d974965b825f1437aa127ee7b866","kind":"image-recipe","nodeVersion":"22.20.0","pnpmVersion":"10.11.0","schemaVersion":1,"toolSourceSha":"41ddfe532242f87281f9c2ccdd26c7c0f061347a"}

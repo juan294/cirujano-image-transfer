@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {readFile,lstat} from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
+const h=await import('/opt/cirujano/harness.mjs');
+const raw=await readFile('/opt/cirujano/image.json','utf8');
+const manifest=h.parseStrictJson(raw);
+const recipe=h.parseStrictJson(await readFile('/opt/cirujano/recipe.json','utf8'));
+const expected={toolSourceSha:'41ddfe532242f87281f9c2ccdd26c7c0f061347a',bundleDigest:'2ada1f090f211f05ac56d69d769e76a3b2dc2e0ebdb75585e81638f88c401dc7',nodeVersion:'22.20.0',pnpmVersion:'10.11.0',harnessHash:'38340b4d15edf20008ca1062e5fbf65522cbd319c9199ab63a10340db1623779',recipeHash:'37a3a20d4ebfb2c7b3cb033e3c5246d1ab46ef0f9b24e93ef0c246079bd072e1',lockfileHash:'eea37020abaf29d8f536bd322c5cd326190e542a3887d18f58c8653d06baa1df',dependencyStoreHash:'e2b2f827c18729bea1070094a325916e8efa1575943d4c2f1b901f242ecba032'};
+for(const [key,value] of Object.entries(expected))assert.equal(manifest[key],value,key);
+assert.equal(process.versions.node,expected.nodeVersion);
+for(const path of ['/usr/local/bin/pnpm','/home/runner/setup-pnpm/node_modules/.bin/pnpm'])assert.equal(execFileSync(path,['--version'],{encoding:'utf8',timeout:10000}).trim(),expected.pnpmVersion);
+assert.equal(h.sha256(await readFile('/opt/cirujano/harness.mjs')),expected.harnessHash);
+assert.equal(h.jsonDigest(recipe),expected.recipeHash);
+assert.equal(h.sha256(await readFile('/opt/cirujano/dependency-input/pnpm-lock.yaml')),expected.lockfileHash);
+assert.equal(await h.dependencyStoreDigest('/opt/cirujano/store'),expected.dependencyStoreHash);
+for(const path of ['/opt/cirujano/harness.mjs','/opt/cirujano/image.json','/opt/cirujano/store'])assert.equal((await lstat(path)).mode&0o222,0);
+console.log(JSON.stringify({schemaVersion:1,kind:'hosted-image-content-readback',manifest,manifestHash:h.jsonDigest(manifest),verified:true}));
