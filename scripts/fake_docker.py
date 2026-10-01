@@ -9,7 +9,7 @@ if 'login' in args:
  (root/'auth.json').write_text('{}');(root/'auth.json').chmod(0o600)
 elif 'copy' in args:
  if os.environ.get('FIXTURE_FAIL')=='copy':raise SystemExit(1)
- config=(root/'image-id').read_text()
+ config=(root/'config-digest').read_text()
  if os.environ.get('FIXTURE_FAIL')=='config':config='sha256:'+'c'*64
  raw=json.dumps({'config':{'digest':config}},separators=(',',':')).encode()
  (root/'fixture-manifest.json').write_bytes(raw)
