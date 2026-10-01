@@ -30,6 +30,7 @@ jobs:
           EVENT_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
+          test "$GITHUB_RUN_ATTEMPT" = 1
           test "$GITHUB_REPOSITORY" = juan294/cirujano-image-transfer
           test "$GITHUB_REF" = refs/heads/develop
           test "$APPROVED_COMMIT" = "$EVENT_SHA"
