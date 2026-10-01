@@ -1,37 +1,77 @@
-name: Reviewed image build
+name: Verified mirror and Sandbox import
 on:
   workflow_dispatch:
     inputs:
       approved_commit:
-        description: Exact reviewed integration commit
+        description: Exact reviewed develop commit
         required: true
         type: string
 permissions:
   contents: read
+  packages: write
 concurrency:
-  group: reviewed-image-build
+  group: cirujano-proof-mirror-import
   cancel-in-progress: false
 jobs:
-  build:
+  recovery:
     runs-on: ubuntu-24.04
-    timeout-minutes: 55
+    timeout-minutes: 30
     env:
-      APPROVED_COMMIT: ${{ inputs.approved_commit }}
+      SOURCE_IMAGE: cr.eu-north1.nebius.cloud/e00n3hvnajpf75kkc6/optimization-proof@sha256:e3058fb86a3bf2f4f71fe26bb89c66922837507508f96ddbc369b264833684a0
+      DEST_IMAGE: ghcr.io/juan294/cirujano-optimization-proof-mirror:hosted-41ddfe532242
+      SKOPEO_IMAGE: quay.io/skopeo/stable@sha256:9988d67af5ce59f9045c6f525386e7941775727b0ff2aac7ba498b8adf79053b
     steps:
-      - name: Checkout reviewed integration commit
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           persist-credentials: false
-      - name: Build and verify without provider credentials
-        shell: bash
-        run: bash scripts/build.sh
-      - name: Publish once and read back registry digest
+      - name: Verify authorized identity
         env:
-          REGISTRY_TOKEN: ${{ secrets.NEBIUS_TRANSFER_ACCESS_TOKEN }}
-        shell: bash
-        run: bash scripts/publish.sh
-      - name: Remove private files and owned containers
-        if: always()
-        shell: bash
+          APPROVED_COMMIT: ${{ inputs.approved_commit }}
+          EVENT_SHA: ${{ github.sha }}
         run: |
-          bash scripts/cleanup.sh
+          set -euo pipefail
+          test "$GITHUB_REPOSITORY" = juan294/cirujano-image-transfer
+          test "$GITHUB_REF" = refs/heads/develop
+          test "$APPROVED_COMMIT" = "$EVENT_SHA"
+          test "$(git rev-parse HEAD)" = "$EVENT_SHA"
+      - name: Copy immutable bytes to private GHCR mirror once
+        env:
+          NEBIUS_REGISTRY_TOKEN: ${{ secrets.NEBIUS_TRANSFER_ACCESS_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          umask 077
+          mkdir .private-mirror
+          python3 - <<'PY'
+          import os,json,base64,pathlib
+          auth={'auths':{host:{'auth':base64.b64encode((user+':'+key).encode()).decode()} for host,user,key in [('cr.eu-north1.nebius.cloud','iam',os.environ['NEBIUS_REGISTRY_TOKEN']),('ghcr.io','juan294',os.environ['GITHUB_TOKEN'])]}}
+          pathlib.Path('.private-mirror/auth.json').write_text(json.dumps(auth))
+          PY
+          docker run --rm -v "$PWD/.private-mirror:/work" "$SKOPEO_IMAGE" copy --preserve-digests --retry-times 0 --src-authfile /work/auth.json --dest-authfile /work/auth.json "docker://$SOURCE_IMAGE" "docker://$DEST_IMAGE"
+          docker run --rm -v "$PWD/.private-mirror:/work" "$SKOPEO_IMAGE" inspect --raw --authfile /work/auth.json --retry-times 0 "docker://$DEST_IMAGE" > .private-mirror/manifest.json
+          docker run --rm -v "$PWD/.private-mirror:/work" "$SKOPEO_IMAGE" inspect --raw --config --authfile /work/auth.json --retry-times 0 "docker://$DEST_IMAGE" > .private-mirror/config.json
+          python3 - <<'PY'
+          import hashlib,pathlib
+          for name,digest in [('manifest.json','e3058fb86a3bf2f4f71fe26bb89c66922837507508f96ddbc369b264833684a0'),('config.json','a8f16af135de5328dac235a743335c5127ccb07862e330f7ba2dfe3485f3d141')]:
+              assert hashlib.sha256(pathlib.Path('.private-mirror',name).read_bytes()).hexdigest()==digest
+          PY
+      - name: Import verified mirror once and read image contents
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TOKENFACTORY_KEY: ${{ secrets.TOKENFACTORY_RECOVERY_KEY }}
+          TOKENFACTORY_PROJECT: ${{ secrets.TOKENFACTORY_RECOVERY_PROJECT }}
+        run: timeout --signal=TERM --kill-after=5s 615s python3 import.py
+      - name: Preserve partial result after interruption
+        if: always()
+        run: python3 import.py --export
+      - name: Upload credential-free result
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: mirror-import-result
+          path: recovery-result.json
+          if-no-files-found: warn
+          retention-days: 1
+      - name: Remove private runner files
+        if: always()
+        run: rm -rf -- .private-mirror .private-import
